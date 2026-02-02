@@ -1,0 +1,26 @@
+{
+  "name": "motherload-agent-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Express server hosting the mining game UI and agent API",
+  "main": "dist/run.js",
+  "scripts": {
+    "start": "node dist/run.js",
+    "dev": "ts-node-dev --respawn --transpile-only run.ts",
+    "build": "tsc -p tsconfig.json",
+    "type-check": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "openai": "^4.67.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.12.12",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.5.4"
+  }
+}

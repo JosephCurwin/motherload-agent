@@ -1,0 +1,150 @@
+openapi: 3.0.3
+info:
+  title: Mining Agent Game API
+  version: 1.0.0
+  description: |
+    API for controlling the turn-based mining agent. The UI sends the current
+    game state and receives a plan (list of actions). The UI simulates the
+    world locally; the API only decides actions.
+servers:
+  - url: http://localhost:8080
+paths:
+  /plan:
+    post:
+      summary: Get a multi-turn action plan
+      operationId: createPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanRequest'
+      responses:
+        '200':
+          description: Plan returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanResponse'
+        '400':
+          description: Invalid input
+        '500':
+          description: Server error
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      responses:
+        '200':
+          description: OK
+components:
+  schemas:
+    PlanRequest:
+      type: object
+      required: [planLength, state]
+      properties:
+        sessionId:
+          type: string
+          description: Client session id for agent memory.
+        planLength:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: Number of actions requested.
+        state:
+          $ref: '#/components/schemas/GameState'
+    PlanResponse:
+      type: object
+      required: [actions]
+      properties:
+        actions:
+          type: array
+          minItems: 0
+          items:
+            $ref: '#/components/schemas/Action'
+        note:
+          type: string
+          description: Optional server note.
+        reasoning:
+          type: string
+          description: Optional model reasoning text (display only).
+        progress:
+          type: number
+          description: Progress meter 0-100.
+        status:
+          type: string
+          description: Optional status string (e.g., stuck, ok, need_fuel).
+    GameState:
+      type: object
+      required: [turn, pos, fuel, hull, cargo, money, atSurface, atFuelStation, atUpgradeShop, localScan]
+      properties:
+        turn:
+          type: integer
+        pos:
+          type: object
+          required: [x, y, depth]
+          properties:
+            x: { type: integer }
+            y: { type: integer }
+            depth: { type: integer }
+        fuel:
+          type: object
+          required: [cur, max]
+          properties:
+            cur: { type: integer }
+            max: { type: integer }
+        hull:
+          type: object
+          required: [cur, max]
+          properties:
+            cur: { type: integer }
+            max: { type: integer }
+        cargo:
+          type: object
+          required: [cur, cap]
+          properties:
+            cur: { type: integer }
+            cap: { type: integer }
+        money:
+          type: integer
+        atSurface:
+          type: boolean
+        atFuelStation:
+          type: boolean
+        atUpgradeShop:
+          type: boolean
+        drill:
+          type: number
+          description: Drill efficiency multiplier (lower is better).
+        goal:
+          type: object
+          properties:
+            x: { type: integer }
+            y: { type: integer }
+            mined: { type: boolean }
+        localScan:
+          type: array
+          description: 6x6 window centered near the pod (strings of tiles).
+          items:
+            type: string
+        rules:
+          type: object
+          description: Static rules for the agent.
+    Action:
+      type: object
+      required: [type, reason]
+      properties:
+        type:
+          type: string
+          enum: [MOVE, SURFACE_OPS, UPGRADE]
+        dir:
+          type: string
+          enum: [L, R, U, D]
+          description: Required when type is MOVE.
+        kind:
+          type: string
+          enum: [FUEL, CARGO, HULL, DRILL]
+          description: Required when type is UPGRADE.
+        reason:
+          type: string
+          description: Natural language rationale.

@@ -1,0 +1,2210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Turn-based Motherload-ish Agent</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    body { margin: 0; padding: 16px; background: #111; color: #eee; }
+    .wrap { display: grid; grid-template-columns: 420px 1fr; gap: 16px; align-items: start; }
+    .card { background: #1b1b1b; border: 1px solid #2a2a2a; border-radius: 12px; padding: 12px; }
+    h1 { font-size: 18px; margin: 0 0 10px; }
+    h2 { font-size: 14px; margin: 0 0 8px; opacity: .9; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    button { background: #2b2b2b; color: #eee; border: 1px solid #3a3a3a; padding: 8px 10px; border-radius: 10px; cursor: pointer; }
+    button:hover { background: #333; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    input[type="range"] { width: 180px; }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat { background: #161616; border: 1px solid #2a2a2a; border-radius: 10px; padding: 8px; }
+    .stat b { display: block; font-size: 12px; opacity: .9; }
+    .stat span { font-size: 14px; }
+    #grid { display: inline-grid; grid-auto-rows: 16px; grid-auto-columns: 16px; gap: 1px; background: #000; padding: 8px; border-radius: 12px; border: 1px solid #2a2a2a;}
+    .cell {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+    }
+    .fov { outline: 1px solid rgba(120, 180, 255, 0.35); box-shadow: inset 0 0 0 1px rgba(120, 180, 255, 0.18); }
+    .fog { filter: saturate(0.25) brightness(0.4) contrast(0.7); }
+    .fog::after {
+      content: "";
+      position: absolute;
+      inset: -2px;
+      background: linear-gradient(135deg, rgba(16, 28, 44, 0.75), rgba(10, 16, 26, 0.85));
+      opacity: 0.9;
+      z-index: 2;
+      pointer-events: none;
+    }
+    .cell-label{
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 9px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      color: #dcdcdc;
+      text-shadow: 0 1px 0 rgba(0,0,0,0.7);
+      white-space: nowrap;
+      z-index: 3;
+      pointer-events: none;
+    }
+    .cell-icon{
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      color: rgba(0,0,0,0.6);
+      text-shadow: 0 1px 0 rgba(255,255,255,0.25);
+      z-index: 2;
+      pointer-events: none;
+    }
+    .t-station .cell-icon { color: rgba(2,18,32,0.7); }
+    .t-shop .cell-icon { color: rgba(32,20,2,0.7); }
+    .t-air { background-color: #000; }
+    .t-surface {
+      background-color: #0b0;
+      background-image: linear-gradient(0deg, rgba(0,0,0,.18), rgba(255,255,255,.08));
+    }
+    .t-dirt{
+      background-image:
+        radial-gradient(circle at 4px 5px, rgba(0,0,0,.28) 0 1px, transparent 2px),
+        radial-gradient(circle at 11px 9px, rgba(0,0,0,.22) 0 1px, transparent 2px),
+        radial-gradient(circle at 8px 13px, rgba(255,255,255,.06) 0 1px, transparent 2px);
+    }
+    .t-rock{
+      background-image:
+        linear-gradient(135deg, rgba(0,0,0,.25) 0 25%, transparent 25% 50%, rgba(0,0,0,.20) 50% 75%, transparent 75% 100%),
+        linear-gradient(45deg, rgba(255,255,255,.05), rgba(0,0,0,.10));
+      background-size: 6px 6px, auto;
+    }
+    .t-ore{
+      background-image:
+        radial-gradient(circle at 4px 4px, rgba(255,255,255,.45) 0 1px, transparent 2px),
+        radial-gradient(circle at 12px 7px, rgba(255,255,255,.25) 0 1px, transparent 2px),
+        linear-gradient(45deg, rgba(0,0,0,.18), transparent 60%);
+    }
+    .t-lava{
+      background-image:
+        radial-gradient(circle at 4px 4px, rgba(255,255,255,.2) 0 1px, transparent 2px),
+        radial-gradient(circle at 12px 10px, rgba(255,255,255,.18) 0 1px, transparent 2px),
+        radial-gradient(circle at 6px 12px, rgba(0,0,0,.35) 0 2px, transparent 3px),
+        radial-gradient(circle at 11px 5px, rgba(0,0,0,.3) 0 2px, transparent 3px),
+        linear-gradient(135deg, rgba(255,255,255,.08), rgba(0,0,0,.25));
+    }
+    .t-goal{
+      background-image:
+        radial-gradient(circle at 4px 4px, rgba(255,255,255,.55) 0 1px, transparent 2px),
+        radial-gradient(circle at 12px 10px, rgba(255,255,255,.35) 0 1px, transparent 2px),
+        linear-gradient(45deg, rgba(255,255,255,.12), rgba(0,0,0,.18));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18), 0 0 6px rgba(255,0,255,0.25);
+    }
+    .t-pod{
+      background-image:
+        radial-gradient(circle at 6px 5px, rgba(255,255,255,.7) 0 2px, transparent 3px),
+        linear-gradient(135deg, rgba(0,0,0,.2), rgba(255,255,255,.08));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25);
+    }
+    .t-station{
+      background-image:
+        linear-gradient(90deg, rgba(0,0,0,.25) 0 20%, transparent 20% 40%, rgba(0,0,0,.2) 40% 60%, transparent 60% 80%, rgba(0,0,0,.22) 80% 100%),
+        linear-gradient(0deg, rgba(255,255,255,.12), rgba(0,0,0,.18));
+      background-size: 6px 100%, auto;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
+    }
+    .t-shop{
+      background-image:
+        linear-gradient(45deg, rgba(0,0,0,.22) 0 25%, transparent 25% 50%, rgba(0,0,0,.2) 50% 75%, transparent 75% 100%),
+        linear-gradient(0deg, rgba(255,255,255,.1), rgba(0,0,0,.18));
+      background-size: 6px 6px, auto;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
+    }
+    .legend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; font-size: 12px; opacity: .9; }
+    .legend .item { display: flex; align-items: center; gap: 6px; }
+    .sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid #333; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
+    .log { max-height: 280px; overflow: auto; background: #141414; border: 1px solid #2a2a2a; border-radius: 12px; padding: 10px; }
+    .log p { margin: 0 0 8px; }
+    .tiny { font-size: 12px; opacity: .85; }
+    .pill { padding: 2px 8px; border: 1px solid #333; border-radius: 999px; font-size: 12px; opacity: .9; }
+    .thinking { color: #b4f; }
+    .ok { color: #7f7; }
+    .warn { color: #fd7; }
+    .bad { color: #f77; }
+    .status { font-size: 12px; opacity: .9; }
+    .agent-status { display: flex; align-items: center; gap: 8px; font-size: 12px; opacity: .9; margin: 2px 0 8px; }
+    .agent-status .pill { font-size: 11px; }
+    .api-status { display: flex; align-items: center; gap: 8px; font-size: 12px; opacity: .9; margin: 2px 0 8px; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #555; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1); }
+    .status-dot.thinking { background: #fd7; box-shadow: 0 0 8px rgba(255,210,80,0.6); }
+    .status-dot.ok { background: #7f7; box-shadow: 0 0 8px rgba(80,255,80,0.6); }
+    .status-dot.bad { background: #f77; box-shadow: 0 0 8px rgba(255,80,80,0.6); }
+    .divider { height: 1px; background: #2a2a2a; margin: 10px 0; }
+    .right { display: grid; gap: 16px; grid-template-columns: auto; align-items: start; }
+    .world-layout {
+      display: grid;
+      grid-template-columns: max-content 360px;
+      align-items: start;
+      justify-content: start;
+      gap: 16px;
+    }
+    .world-log { height: 100%; }
+    .world-log .log { width: 100%; }
+    .kbd { font-family: ui-monospace, monospace; border: 1px solid #333; border-bottom-width: 2px; padding: 1px 6px; border-radius: 6px; background: #161616; }
+    .banner {
+      display: none;
+      margin: 8px 0 0;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid #2a2a2a;
+      background: linear-gradient(135deg, rgba(12, 56, 28, 0.9), rgba(6, 26, 18, 0.9));
+      color: #dfffe8;
+      font-size: 13px;
+      box-shadow: 0 0 12px rgba(80,255,160,0.15);
+    }
+    .banner b { font-weight: 700; }
+    .banner.error {
+      background: linear-gradient(135deg, rgba(64, 16, 16, 0.9), rgba(28, 8, 8, 0.9));
+      color: #ffe0e0;
+      box-shadow: 0 0 12px rgba(255,80,80,0.15);
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>llm plays Motherload-like </h1>
+
+      <div class="stats">
+        <div class="stat"><b>Depth</b><span id="depth">0</span></div>
+        <div class="stat"><b>Money</b><span id="money">$0</span></div>
+        <div class="stat"><b>Fuel</b><span id="fuel">0</span></div>
+        <div class="stat"><b>Hull</b><span id="hull">0</span></div>
+        <div class="stat"><b>Cargo</b><span id="cargo">0/0</span></div>
+        <div class="stat"><b>Turn</b><span id="turn">0</span></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <h2>Controls</h2>
+      <div class="row">
+        <button id="btnReset">Reset Game</button>
+        <button id="btnStartTestProgrammatic">Start Programmatic-Agent</button>
+      </div>
+      <div class="divider"></div>
+      <h2>LLM Agent</h2>
+      <div class="row">
+        <button id="btnStartAgent">Start LLM-Agent</button>
+        <label class="row" style="gap:6px;">
+          <input type="checkbox" id="fuelNavigatorToggle" />
+          <span>add Fuel navigator</span>
+        </label>
+      </div>
+      <div class="tiny" id="fuelNavigatorDesc" style="margin-top:6px;">
+       Fuel navigator:  when enabled helps the LLM back with instructions to the fuel station when fuel is critical.
+      </div>
+      <div class="divider"></div>
+      <h2>Legend</h2>
+      <div class="legend">
+        <div class="item"><span class="sw" style="background:#0b0;"></span> Surface</div>
+        <div class="item"><span class="sw" style="background:#444;"></span> Dirt</div>
+        <div class="item"><span class="sw" style="background:#666;"></span> Rock</div>
+        <div class="item"><span class="sw" style="background:#cc0;"></span> Ore</div>
+        <div class="item"><span class="sw" style="background:#c30;"></span> Lava</div>
+        <div class="item"><span class="sw" style="background:#09f;"></span> Pod</div>
+        <div class="item"><span class="sw" style="background:#f0f;"></span> Goal Ore</div>
+        <div class="item"><span class="sw" style="background:#0af;"></span> Fuel Station</div>
+        <div class="item"><span class="sw" style="background:#fa0;"></span> Upgrade Shop</div>
+      </div>
+      <div class="tiny" style="margin-top:10px;">
+        <strong>Goal: </strong>Collect goal ore
+        <br/>
+        <strong>Rules:</strong> cant move through rock/surface. Air movement is cheaper (L/R/D into air costs +0.5 fuel; U into air costs +2 thrust).
+         <br/>
+        Lava damages hull. 
+         <br/>
+        Digging costs fuel. 
+         <br/>
+        Moving costs fuel.
+          <br/>
+        Game over: out of fuel or hull damage.
+           <br/>
+       
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="card">
+        <div class="banner" id="winBanner"></div>
+        <div class="banner error" id="apiErrorBanner"></div>
+        <div class="world-layout">
+          <div class="world-grid">
+            <h2>World</h2>
+            <div class="agent-status">
+              <span id="agentStatus">Agent: idle</span>
+              <span class="pill" id="agentModel" style="display:none;"></span>
+            </div>
+            <div id="grid"></div>
+          </div>
+          <div class="world-log">
+            <h2>Log</h2>
+            <div class="api-status">
+              <span class="status-dot" id="apiStatusDot"></span>
+              <span id="apiStatusText">API: idle</span>
+            </div>
+            <div class="log" id="log"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/**
+ * Turn-based mining sim with simulated LLM API delay.
+ * - Game sim runs instantly; "agent" decision is delayed to mimic API latency.
+ * - Replace callAgentSimulated() with a real OpenAI/OpenRouter call later.
+ */
+
+const W = 34, H = 26;
+const TILE = { SURFACE: "S", AIR: ".", DIRT: "d", ROCK: "r", ORE: "o", LAVA: "l", GOAL: "g" };
+const FOV_SIZE = 6;
+const STATION_X = 6;
+const SHOP_X = W - 7;
+
+const COLORS = {
+  [TILE.SURFACE]: "#0b0",
+  [TILE.AIR]: "#000",
+  [TILE.DIRT]: "#3b2f1f",
+  [TILE.ROCK]: "#666",
+  [TILE.ORE]:  "#cc0",
+  [TILE.LAVA]: "#c30",
+  [TILE.GOAL]: "#f0f"
+};
+const SURFACE_MARKERS = {
+  station: { x: STATION_X, color: "#0af", label: "Fuel Station" },
+  shop: { x: SHOP_X, color: "#fa0", label: "Upgrade Shop" }
+};
+
+const ORE_VALUE = 60;
+
+let state;
+let auto = { on: false, timer: null };
+const testMode = { active: false, running: false };
+let lastAgentModel = null;
+let fuelNavigatorPath = null;
+let fuelNavigatorActive = false;
+const FUEL_NAV_TOGGLE_KEY = "motherload-fuel-navigator";
+const sessionId = (() => {
+  const key = "motherload-session-id";
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id = `sess_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
+    localStorage.setItem(key, id);
+  }
+  return id;
+})();
+let fuelNavigatorEnabled = (() => {
+  const saved = localStorage.getItem(FUEL_NAV_TOGGLE_KEY);
+  if (saved === "1") return true;
+  if (saved === "0") return false;
+  return false;
+})();
+
+const el = {
+  grid: document.getElementById("grid"),
+  log: document.getElementById("log"),
+  depth: document.getElementById("depth"),
+  money: document.getElementById("money"),
+  fuel: document.getElementById("fuel"),
+  hull: document.getElementById("hull"),
+  cargo: document.getElementById("cargo"),
+  turn: document.getElementById("turn"),
+  btnReset: document.getElementById("btnReset"),
+  btnStartAgent: document.getElementById("btnStartAgent"),
+  btnStartTestProgrammatic: document.getElementById("btnStartTestProgrammatic"),
+  fuelNavigatorToggle: document.getElementById("fuelNavigatorToggle"),
+  fuelNavigatorDesc: document.getElementById("fuelNavigatorDesc"),
+  progressBar: document.getElementById("progressBar"),
+  progressLabel: document.getElementById("progressLabel"),
+  apiStatusText: document.getElementById("apiStatusText"),
+  apiStatusDot: document.getElementById("apiStatusDot"),
+  agentStatus: document.getElementById("agentStatus"),
+  agentModel: document.getElementById("agentModel"),
+  winBanner: document.getElementById("winBanner"),
+  apiErrorBanner: document.getElementById("apiErrorBanner"),
+};
+
+const DEFAULT_PLAN_LENGTH = 3;
+const DEFAULT_AUTO_DELAY_MS = 250;
+const DEFAULT_PLAYBACK_DELAY_MS = 180;
+const MAX_API_ERROR_STREAK = 4;
+const REMOTE_API_ENDPOINT = "http://localhost:8080/plan";
+const REMOTE_API_TIMEOUT_MS = 50000;
+
+function rand(n) { return Math.floor(Math.random() * n); }
+function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
+function round2(n) { return Math.round(n * 100) / 100; }
+
+function log(msg, cls="") {
+  const p = document.createElement("p");
+  p.className = cls;
+  p.textContent = msg;
+  el.log.prepend(p);
+}
+
+function logServer(level, message, meta = {}) {
+  fetch("/client-log", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ level, message, meta })
+  }).catch(() => {});
+}
+
+function logAgent(level, message, meta = {}) {
+  fetch("/agent-log", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ level, message, meta })
+  }).catch(() => {});
+}
+
+function showWinBanner(message) {
+  if (!el.winBanner) return;
+  el.winBanner.textContent = message;
+  el.winBanner.style.display = "block";
+}
+
+function hideWinBanner() {
+  if (!el.winBanner) return;
+  el.winBanner.textContent = "";
+  el.winBanner.style.display = "none";
+}
+
+function showApiErrorBanner(message) {
+  if (!el.apiErrorBanner) return;
+  el.apiErrorBanner.textContent = message;
+  el.apiErrorBanner.style.display = "block";
+}
+
+function hideApiErrorBanner() {
+  if (!el.apiErrorBanner) return;
+  el.apiErrorBanner.textContent = "";
+  el.apiErrorBanner.style.display = "none";
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isPassable(t) {
+  return t !== TILE.ROCK && t !== TILE.SURFACE;
+}
+
+function findPath(world, start, goal) {
+  const q = [];
+  const visited = Array.from({ length: H }, () => Array(W).fill(false));
+  const prev = Array.from({ length: H }, () => Array(W).fill(null));
+  q.push(start);
+  visited[start.y][start.x] = true;
+
+  const dirs = [
+    { dx: 0, dy: -1, dir: "U" },
+    { dx: 0, dy: 1, dir: "D" },
+    { dx: -1, dy: 0, dir: "L" },
+    { dx: 1, dy: 0, dir: "R" }
+  ];
+
+  while (q.length) {
+    const cur = q.shift();
+    if (cur.x === goal.x && cur.y === goal.y) break;
+    for (const d of dirs) {
+      const nx = cur.x + d.dx;
+      const ny = cur.y + d.dy;
+      if (!inBounds(nx, ny)) continue;
+      if (visited[ny][nx]) continue;
+      const t = world[ny][nx];
+      if (!isPassable(t)) continue;
+      visited[ny][nx] = true;
+      prev[ny][nx] = { x: cur.x, y: cur.y, dir: d.dir };
+      q.push({ x: nx, y: ny });
+    }
+  }
+
+  if (!visited[goal.y][goal.x]) return null;
+  const out = [];
+  let cur = { x: goal.x, y: goal.y };
+  while (cur.x !== start.x || cur.y !== start.y) {
+    const p = prev[cur.y][cur.x];
+    if (!p) return null;
+    out.push(p.dir);
+    cur = { x: p.x, y: p.y };
+  }
+  out.reverse();
+  return out;
+}
+
+async function runPath(directions, label, totalStepsRef) {
+  for (const dir of directions) {
+    if (!state.alive) break;
+    stepSim({ type: "MOVE", dir, reason: `Test: ${label}` }, { renderAfter: true });
+    if (totalStepsRef) {
+      totalStepsRef.done += 1;
+      const pct = Math.round((totalStepsRef.done / totalStepsRef.total) * 100);
+      if (el.progressBar) el.progressBar.value = Math.max(0, Math.min(100, pct));
+      if (el.progressLabel) el.progressLabel.textContent = `${el.progressBar?.value ?? 0}%`;
+    }
+    await sleep(20);
+  }
+}
+
+function minUpgradeCost() {
+  return 120;
+}
+
+function estimateFuelTargetForDepth(depthY, drill, dx = 0) {
+  const depth = Math.max(0, depthY - 1);
+  const downDig = Math.max(1, Math.ceil(2 * (drill ?? 1)));
+  const downStep = downDig + 2; // base(1) + dig(+1)
+  const upStep = 3; // base(1) + thrust(2)
+  const estimate = depth * (downStep + upStep) + dx * 4 + 20;
+  return Math.max(180, Math.ceil(estimate));
+}
+
+function estimateFuelTargetForGoal(goal, drill) {
+  if (!goal) return estimateFuelTargetForDepth(12, drill, 0);
+  const dx = Math.abs(goal.x - SURFACE_MARKERS.station.x);
+  return estimateFuelTargetForDepth(goal.y, drill, dx);
+}
+
+function chooseUpgradeKind(fuelTarget, hullTarget) {
+  const hullLow = state.hull < Math.max(16, Math.floor(state.maxHull * 0.5));
+  const needFuel = fuelTarget && state.maxFuel < fuelTarget;
+  const needHull = hullTarget && state.maxHull < hullTarget;
+
+  if (hullLow && state.money >= 140) return "HULL";
+  if (needFuel && state.money >= 120) return "FUEL";
+  if (state.money >= 180 && state.drill > 0.6 && !needFuel) return "DRILL";
+  if (needHull && state.money >= 140 && !needFuel) return "HULL";
+  if (state.money >= 120) return "FUEL";
+  if (state.money >= 140) return "HULL";
+  if (state.money >= 150) return "CARGO";
+  return null;
+}
+
+function makeTestMemory() {
+  return new Map();
+}
+
+function memKey(x, y) {
+  return `${x},${y}`;
+}
+
+function updateTestMemory(mem, agentState) {
+  const baseX = agentState.pos.x - 2;
+  const baseY = agentState.pos.y - 2;
+  for (let ry = 0; ry < agentState.localScan.length; ry++) {
+    const row = agentState.localScan[ry];
+    for (let rx = 0; rx < row.length; rx++) {
+      const t = row[rx];
+      const gx = baseX + rx;
+      const gy = baseY + ry;
+      if (!inBounds(gx, gy)) continue;
+      mem.set(memKey(gx, gy), t);
+    }
+  }
+  // Game rule: row 1 is always air (surface air row).
+  for (let x = 0; x < W; x++) {
+    mem.set(memKey(x, 1), TILE.AIR);
+  }
+}
+
+function getMemTile(mem, x, y) {
+  return mem.get(memKey(x, y)) ?? "?";
+}
+
+function getDeepestKnown(mem) {
+  let maxY = 1;
+  for (const key of mem.keys()) {
+    const ys = key.split(",")[1];
+    const y = Number(ys);
+    if (Number.isFinite(y)) maxY = Math.max(maxY, y);
+  }
+  return maxY;
+}
+
+function findGoalInMem(mem) {
+  for (const [key, t] of mem.entries()) {
+    if (t !== TILE.GOAL) continue;
+    const [xs, ys] = key.split(",");
+    const x = Number(xs);
+    const y = Number(ys);
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      return { x, y };
+    }
+  }
+  return null;
+}
+
+function isMemPassable(t, allowUnknown = true, avoidLava = false) {
+  if (t === TILE.ROCK || t === TILE.SURFACE) return false;
+  if (avoidLava && t === TILE.LAVA) return false;
+  if (!allowUnknown && t === "?") return false;
+  return true;
+}
+
+function bfsPathOnMem(mem, start, goal, opts = {}) {
+  const q = [];
+  const visited = Array.from({ length: H }, () => Array(W).fill(false));
+  const prev = Array.from({ length: H }, () => Array(W).fill(null));
+  q.push(start);
+  visited[start.y][start.x] = true;
+  const allowUnknown = opts.allowUnknown !== false;
+  const avoidLava = opts.avoidLava === true;
+
+  const dirs = [
+    { dx: 0, dy: -1, dir: "U" },
+    { dx: 0, dy: 1, dir: "D" },
+    { dx: -1, dy: 0, dir: "L" },
+    { dx: 1, dy: 0, dir: "R" }
+  ];
+
+  while (q.length) {
+    const cur = q.shift();
+    if (cur.x === goal.x && cur.y === goal.y) break;
+    for (const d of dirs) {
+      const nx = cur.x + d.dx;
+      const ny = cur.y + d.dy;
+      if (!inBounds(nx, ny)) continue;
+      if (visited[ny][nx]) continue;
+      const t = getMemTile(mem, nx, ny);
+      if (!isMemPassable(t, allowUnknown, avoidLava)) continue;
+      visited[ny][nx] = true;
+      prev[ny][nx] = { x: cur.x, y: cur.y, dir: d.dir };
+      q.push({ x: nx, y: ny });
+    }
+  }
+
+  if (!visited[goal.y][goal.x]) return null;
+  const out = [];
+  let cur = { x: goal.x, y: goal.y };
+  while (cur.x !== start.x || cur.y !== start.y) {
+    const p = prev[cur.y][cur.x];
+    if (!p) return null;
+    out.push(p.dir);
+    cur = { x: p.x, y: p.y };
+  }
+  out.reverse();
+  return out;
+}
+
+function bfsToNearestOre(mem, start, opts = {}) {
+  const q = [];
+  const visited = Array.from({ length: H }, () => Array(W).fill(false));
+  const prev = Array.from({ length: H }, () => Array(W).fill(null));
+  q.push(start);
+  visited[start.y][start.x] = true;
+  const allowUnknown = opts.allowUnknown !== false;
+  const avoidLava = opts.avoidLava === true;
+
+  const dirs = [
+    { dx: 0, dy: -1, dir: "U" },
+    { dx: 0, dy: 1, dir: "D" },
+    { dx: -1, dy: 0, dir: "L" },
+    { dx: 1, dy: 0, dir: "R" }
+  ];
+
+  while (q.length) {
+    const cur = q.shift();
+    const tile = getMemTile(mem, cur.x, cur.y);
+    if (tile === TILE.ORE) {
+      const out = [];
+      let back = cur;
+      while (back.x !== start.x || back.y !== start.y) {
+        const p = prev[back.y][back.x];
+        if (!p) return null;
+        out.push(p.dir);
+        back = { x: p.x, y: p.y };
+      }
+      out.reverse();
+      return { target: { x: cur.x, y: cur.y }, path: out };
+    }
+    for (const d of dirs) {
+      const nx = cur.x + d.dx;
+      const ny = cur.y + d.dy;
+      if (!inBounds(nx, ny)) continue;
+      if (visited[ny][nx]) continue;
+      const t = getMemTile(mem, nx, ny);
+      if (!isMemPassable(t, allowUnknown, avoidLava)) continue;
+      visited[ny][nx] = true;
+      prev[ny][nx] = { x: cur.x, y: cur.y, dir: d.dir };
+      q.push({ x: nx, y: ny });
+    }
+  }
+  return null;
+}
+
+function findFrontier(mem) {
+  const out = [];
+  for (const key of mem.keys()) {
+    const [xs, ys] = key.split(",");
+    const x = Number(xs);
+    const y = Number(ys);
+    const t = getMemTile(mem, x, y);
+    if (!isMemPassable(t)) continue;
+    const neighbors = [
+      { x, y: y - 1 },
+      { x, y: y + 1 },
+      { x: x - 1, y },
+      { x: x + 1, y }
+    ];
+    for (const n of neighbors) {
+      if (!inBounds(n.x, n.y)) continue;
+      if (getMemTile(mem, n.x, n.y) === "?") {
+        out.push({ x, y });
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+function pickExploreStep(mem, pos) {
+  const neighbors = [
+    { x: pos.x, y: pos.y + 1, dir: "D" },
+    { x: pos.x - 1, y: pos.y, dir: "L" },
+    { x: pos.x + 1, y: pos.y, dir: "R" },
+    { x: pos.x, y: pos.y - 1, dir: "U" }
+  ];
+  for (const n of neighbors) {
+    if (!inBounds(n.x, n.y)) continue;
+    if (getMemTile(mem, n.x, n.y) === "?") return n.dir;
+  }
+  return null;
+}
+
+function pickRoamStep(mem, pos) {
+  const neighbors = [
+    { x: pos.x, y: pos.y + 1, dir: "D" },
+    { x: pos.x - 1, y: pos.y, dir: "L" },
+    { x: pos.x + 1, y: pos.y, dir: "R" },
+    { x: pos.x, y: pos.y - 1, dir: "U" }
+  ];
+  for (const n of neighbors) {
+    if (!inBounds(n.x, n.y)) continue;
+    const t = getMemTile(mem, n.x, n.y);
+    if (isMemPassable(t)) return n.dir;
+  }
+  return null;
+}
+
+function estimateFuelForMemPath(path, start, mem, opts = {}) {
+  let fuel = 0;
+  let x = start.x;
+  let y = start.y;
+  const unknownPenalty = opts.unknownPenalty ?? 0;
+  for (const dir of path || []) {
+    fuel += 1; // base per turn
+    let nx = x, ny = y;
+    if (dir === "L") nx--;
+    if (dir === "R") nx++;
+    if (dir === "D") ny++;
+    if (dir === "U") ny--;
+    const t = getMemTile(mem, nx, ny);
+    if (t === TILE.ROCK || t === TILE.SURFACE) return Infinity;
+    if (dir === "U") {
+      if (t === TILE.AIR) {
+        fuel += 2;
+      } else {
+        const baseDig = (t === TILE.DIRT) ? 2 : (t === TILE.ORE ? 2 : 3);
+        const digCost = Math.max(1, Math.ceil(baseDig * state.drill));
+        fuel += (digCost + 1);
+      }
+    } else {
+    if (t === TILE.AIR) {
+      fuel += 0.5;
+    } else {
+      const baseDig = (t === TILE.DIRT) ? 2 : (t === TILE.ORE ? 2 : 3);
+      const digCost = Math.max(1, Math.ceil(baseDig * state.drill));
+      fuel += (digCost + 1);
+    }
+  }
+    if (t === "?") fuel += unknownPenalty;
+    x = nx; y = ny;
+  }
+  return fuel;
+}
+
+function countUnknownsOnPath(path, start, mem) {
+  let x = start.x;
+  let y = start.y;
+  let unknowns = 0;
+  for (const dir of path || []) {
+    if (dir === "L") x--;
+    if (dir === "R") x++;
+    if (dir === "D") y++;
+    if (dir === "U") y--;
+    const t = getMemTile(mem, x, y);
+    if (t === "?") unknowns += 1;
+  }
+  return unknowns;
+}
+
+function estimateFuelForWorldPath(path, start, s) {
+  let fuel = 0;
+  let x = start.x;
+  let y = start.y;
+  for (const dir of path || []) {
+    fuel += 1; // base per turn
+    let nx = x, ny = y;
+    if (dir === "L") nx--;
+    if (dir === "R") nx++;
+    if (dir === "D") ny++;
+    if (dir === "U") ny--;
+    const t = getTileFrom(s, nx, ny);
+    if (t === TILE.ROCK || t === TILE.SURFACE) return Infinity;
+    if (dir === "U") {
+      if (t === TILE.AIR) {
+        fuel += 2;
+      } else {
+        const baseDig = (t === TILE.DIRT) ? 2 : (t === TILE.ORE ? 2 : 3);
+        const digCost = Math.max(1, Math.ceil(baseDig * s.drill));
+        fuel += (digCost + 1);
+      }
+    } else {
+      if (t === TILE.AIR) {
+        fuel += 0.5;
+      } else {
+        const baseDig = (t === TILE.DIRT) ? 2 : (t === TILE.ORE ? 2 : 3);
+        const digCost = Math.max(1, Math.ceil(baseDig * s.drill));
+        fuel += (digCost + 1);
+      }
+    }
+    x = nx; y = ny;
+  }
+  return fuel;
+}
+
+function updateFuelNavigatorState() {
+  if (!fuelNavigatorEnabled || !state?.alive) {
+    fuelNavigatorActive = false;
+    fuelNavigatorPath = null;
+    return null;
+  }
+  const station = { x: SURFACE_MARKERS.station.x, y: 1 };
+  const path = findPath(state.world, { x: state.x, y: state.y }, station);
+  const atStation = state.x === station.x && state.y === station.y;
+  if (!path && !atStation) {
+    fuelNavigatorPath = null;
+    return null;
+  }
+  if (!path && atStation) {
+    fuelNavigatorPath = [];
+  }
+  if (Array.isArray(path)) fuelNavigatorPath = path;
+  const fuelCur = state.fuel;
+  const fuelMax = state.maxFuel || 1;
+  const fuelPct = fuelCur / fuelMax;
+  const errorRate = 0.25;
+  const estReturnFuel = estimateFuelForWorldPath(fuelNavigatorPath || [], { x: state.x, y: state.y }, state);
+  const risk = (estReturnFuel * (1 + errorRate)) / Math.max(1, fuelCur);
+  const shouldActivate = fuelPct < 0.2 && risk >= 1.0;
+  fuelNavigatorActive = fuelNavigatorActive || shouldActivate;
+  return {
+    active: fuelNavigatorActive,
+    fuelPct: round2(fuelPct),
+    estReturnFuel,
+    errorRate,
+    risk: round2(risk),
+    pathDirs: fuelNavigatorPath || []
+  };
+}
+
+function preferReturnToStation(mem) {
+  const station = { x: SURFACE_MARKERS.station.x, y: 1 };
+  const avoidLava = state.hull <= Math.max(16, Math.floor(state.maxHull * 0.5));
+  const pathKnownSafe = bfsPathOnMem(
+    mem,
+    { x: state.x, y: state.y },
+    station,
+    { allowUnknown: false, avoidLava }
+  );
+  const pathKnown = pathKnownSafe || bfsPathOnMem(
+    mem,
+    { x: state.x, y: state.y },
+    station,
+    { allowUnknown: false }
+  );
+  const pathLoose = pathKnown
+    ? null
+    : bfsPathOnMem(mem, { x: state.x, y: state.y }, station, { allowUnknown: true, avoidLava })
+      || bfsPathOnMem(mem, { x: state.x, y: state.y }, station, { allowUnknown: true });
+  if (!pathKnown && !pathLoose) return { shouldReturn: false, path: null, needFuel: Infinity, pathKnown: false };
+  if (!pathKnown) return { shouldReturn: false, path: pathLoose, needFuel: Infinity, pathKnown: false };
+  const needFuel = estimateFuelForMemPath(
+    pathKnown,
+    { x: state.x, y: state.y },
+    mem,
+    { unknownPenalty: 0 }
+  ) + 8;
+  return { shouldReturn: state.fuel <= needFuel, path: pathKnown, needFuel, pathKnown: true };
+}
+
+function buildFuelNavigatorPayload(agentState, planCount) {
+  if (!fuelNavigatorEnabled) return null;
+  if (!state?.alive) return null;
+  if (!agentState?.pos || !agentState?.fuel) return null;
+
+  const base = updateFuelNavigatorState();
+  if (!base) return null;
+  if (!base.active) return base;
+
+  const maxTokens = Math.max(1, Math.min(10, planCount || 1));
+  let nextActions = base.pathDirs.slice(0, maxTokens).map((dir) => `MOVE:${dir}`);
+  let message = [
+    "Fuel Navigator ACTIVE.",
+    "If you cannot reach the fuel station before fuel runs out, the game is over (permadeath).",
+    "Follow the suggested path to the fuel station.",
+    `Next actions only (max ${maxTokens}): ${nextActions.join(" ")}`
+  ].join(" ");
+
+  const needsSurfaceOps =
+    agentState.atFuelStation &&
+    (agentState.fuel.cur < agentState.fuel.max ||
+      agentState.cargo.cur > 0 ||
+      agentState.hull.cur < agentState.hull.max);
+  if (needsSurfaceOps) {
+    nextActions = ["SURFACE_OPS"];
+    message = "Fuel Navigator ACTIVE. You are at the fuel station (y=1): run SURFACE_OPS now to refuel/sell/repair. Do not MOVE:U.";
+  }
+
+  return {
+    ...base,
+    nextActions,
+    message
+  };
+}
+
+async function runFinishTest(opts = {}) {
+  const knowGoal = opts.knowGoal !== false;
+  let discoveredGoal = knowGoal ? state.goal : null;
+  const sweep = { active: false, dir: 1, targetX: null, y: null };
+  if (testMode.running) return;
+  testMode.running = true;
+  testMode.active = true;
+  if (el.btnStartTestProgrammatic) el.btnStartTestProgrammatic.disabled = true;
+  stopAuto();
+  planQueue.length = 0;
+  agentBusy = false;
+
+  const maxSteps = 5000;
+  let finishTurns = 0;
+  let finishReason = null;
+
+  reset();
+  setAgentStatus("programmatic");
+  if (el.progressBar) el.progressBar.value = 0;
+  if (el.progressLabel) el.progressLabel.textContent = "0%";
+  const mem = makeTestMemory();
+  let steps = 0;
+  let lastMemSize = 0;
+  let stepsSinceDiscovery = 0;
+  const mission = { active: false, stepsLeft: 0, minDepth: 0, targetDepth: 0 };
+  const upgradeTrip = { active: false };
+  const targetLock = { label: null, stepsLeft: 0, target: null };
+  const returnCommit = { active: false };
+  let lastDesiredLabel = null;
+  let lastLogStep = 0;
+
+  log(
+    knowGoal
+      ? "Finish test: starting solver with goal location known."
+      : "Finish test (no cheat): starting solver with no goal location knowledge.",
+    "thinking"
+  );
+  logAgent("INFO", "Finish test started", { sessionId, goal: knowGoal ? state.goal : null, fuel: state.fuel, hull: state.hull, knowGoal });
+
+  while (steps < maxSteps && state.alive) {
+    if (state.goal?.mined) {
+      finishTurns = state.turn;
+      finishReason = "goal_mined";
+      break;
+    }
+
+    const agentState = buildStateForAgent();
+    updateTestMemory(mem, agentState);
+    if (!knowGoal && !discoveredGoal) {
+      const found = findGoalInMem(mem);
+      if (found) {
+        discoveredGoal = { ...found, mined: false };
+        logAgent("INFO", "Goal discovered in scan", { step: steps, goal: found });
+      }
+    }
+    if (mem.size > lastMemSize) {
+      lastMemSize = mem.size;
+      stepsSinceDiscovery = 0;
+    } else {
+      stepsSinceDiscovery += 1;
+    }
+
+    const atStation = atFuelStation(state);
+    const atShop = atUpgradeShop(state);
+    const atSurfaceRow = state.y <= 1;
+    const depthTarget = (knowGoal && state.goal) || discoveredGoal
+      ? (knowGoal ? state.goal.y : discoveredGoal.y)
+      : Math.min(H - 2, getDeepestKnown(mem) + 6);
+    const deepenTarget = Math.max(3, depthTarget);
+    const dxToStation = Math.abs(state.x - SURFACE_MARKERS.station.x);
+    let feasibleDepth = deepenTarget;
+    for (let y = deepenTarget; y > 3; y--) {
+      if (estimateFuelTargetForDepth(y, state.drill, dxToStation) <= state.maxFuel - 10) {
+        feasibleDepth = y;
+        break;
+      }
+    }
+    const fuelTarget = knowGoal
+      ? estimateFuelTargetForGoal(state.goal, state.drill)
+      : (discoveredGoal
+        ? estimateFuelTargetForGoal(discoveredGoal, state.drill)
+        : estimateFuelTargetForDepth(depthTarget, state.drill, Math.abs(state.x - SURFACE_MARKERS.station.x)));
+    const hullTarget = depthTarget >= 20 ? 70 : (depthTarget >= 14 ? 60 : 50);
+    const needUpgrade = state.money >= minUpgradeCost();
+    const needsFuelUpgrade = state.maxFuel < fuelTarget;
+    const needsHullUpgrade = state.maxHull < hullTarget;
+    const mineMode = (needsFuelUpgrade || needsHullUpgrade) && !needUpgrade && !state.goal?.mined;
+    const returnPlan = preferReturnToStation(mem);
+    const returnBuffer = (!knowGoal && !discoveredGoal) ? 12 : 2;
+    const hullLow = state.hull <= Math.max(16, Math.floor(state.maxHull * 0.5));
+    const desiredUpgrade = chooseUpgradeKind(fuelTarget, hullTarget);
+
+    if (!upgradeTrip.active && desiredUpgrade && !atShop) {
+      upgradeTrip.active = true;
+      logAgent("INFO", "Upgrade trip started", { money: state.money, kind: desiredUpgrade, pos: { x: state.x, y: state.y } });
+    }
+    if (upgradeTrip.active && atShop && !desiredUpgrade) {
+      upgradeTrip.active = false;
+      logAgent("INFO", "Upgrade trip completed", { money: state.money, pos: { x: state.x, y: state.y } });
+    }
+
+    const extraDepthBuffer = Math.max(6, Math.floor(state.y * 0.4));
+    const fuelGuard = returnPlan.needFuel + returnBuffer + extraDepthBuffer;
+    const cargoFull = state.cargo >= state.cargoCap;
+    const softReturn = returnPlan.pathKnown && state.fuel <= fuelGuard;
+    const reserveFuel = 12;
+    const pushBuffer = 10;
+    const hardReturn = returnPlan.pathKnown && state.fuel <= returnPlan.needFuel + reserveFuel;
+    const safeToPush = returnPlan.pathKnown && state.fuel > returnPlan.needFuel + reserveFuel + pushBuffer;
+    const mustDeepen =
+      mission.active &&
+      state.y < mission.minDepth &&
+      state.fuel > fuelGuard + 12 &&
+      !cargoFull &&
+      !hullLow &&
+      !upgradeTrip.active;
+    const lockStepsFor = (label) => {
+      if (label === "goal") return 30;
+      if (label === "sweep") return 22;
+      if (label === "deepen") return 14;
+      if (label === "ore") return 10;
+      if (label === "shop") return 8;
+      if (label === "station") return 6;
+      return 6;
+    };
+    const canSweep =
+      !knowGoal &&
+      !discoveredGoal &&
+      !mineMode &&
+      returnPlan.pathKnown &&
+      state.y >= depthTarget - 1 &&
+      state.fuel > fuelGuard + 12 &&
+      !cargoFull;
+    if (!canSweep) {
+      sweep.active = false;
+    } else if (!sweep.active) {
+      sweep.active = true;
+      sweep.y = depthTarget;
+      sweep.targetX = sweep.dir > 0 ? (W - 3) : 2;
+    }
+
+    if (
+      atStation &&
+      !state.goal?.mined &&
+      state.fuel === state.maxFuel &&
+      !mission.active &&
+      !upgradeTrip.active &&
+      !desiredUpgrade
+    ) {
+      mission.active = true;
+      mission.stepsLeft = Math.max(40, Math.floor(state.maxFuel * 0.7));
+      mission.targetDepth = feasibleDepth;
+      mission.minDepth = Math.min(feasibleDepth, Math.max(6, feasibleDepth - 4));
+    }
+    if (mission.active) {
+      mission.targetDepth = Math.max(mission.targetDepth, feasibleDepth);
+      const nextMin = Math.min(mission.targetDepth, Math.max(6, mission.targetDepth - 4));
+      mission.minDepth = Math.max(mission.minDepth, nextMin);
+      if (state.y >= mission.minDepth && mission.stepsLeft <= 0) {
+        mission.active = false;
+      }
+    }
+
+    const repairCostPer = 3;
+    const canSell = state.cargo > 0;
+    const canRefuel = state.fuel < state.maxFuel;
+    const canRepair = state.hull < state.maxHull && state.money >= repairCostPer;
+    if (atStation && (canSell || canRefuel || canRepair)) {
+      stepSim({ type: "SURFACE_OPS", reason: "Test: refuel/repair/sell" }, { renderAfter: true });
+      steps += 1;
+      logAgent("INFO", "Surface ops", { step: steps, pos: { x: state.x, y: state.y }, fuel: state.fuel, hull: state.hull, money: state.money });
+      await sleep(8);
+      continue;
+    }
+
+    if (atShop && desiredUpgrade) {
+      stepSim({ type: "UPGRADE", kind: desiredUpgrade, reason: `Test: buy ${desiredUpgrade}` }, { renderAfter: true });
+        steps += 1;
+        logAgent("INFO", "Upgrade purchased", { step: steps, kind: desiredUpgrade, money: state.money, fuel: state.fuel, hull: state.hull });
+        await sleep(8);
+        continue;
+    }
+
+    const avoidLava = state.hull <= Math.max(16, Math.floor(state.maxHull * 0.5));
+    const orePlan = mineMode ? bfsToNearestOre(mem, { x: state.x, y: state.y }, { avoidLava }) : null;
+    const oreBacktrack = orePlan && orePlan.target.y < Math.max(2, state.y - 1);
+    const oreTooShallow =
+      mission.active && orePlan && orePlan.target.y < Math.max(2, mission.minDepth - 2);
+    let desired = null;
+    const mustReturn =
+      returnPlan.pathKnown &&
+      (hardReturn || cargoFull || (softReturn && (!mission.active || !safeToPush)));
+    const forceReturn = (mustReturn || (hullLow && returnPlan.pathKnown));
+    if (atStation) {
+      returnCommit.active = false;
+    }
+    if (!atStation && (returnCommit.active || forceReturn)) {
+      desired = { x: SURFACE_MARKERS.station.x, y: 1, label: "station" };
+      returnCommit.active = true;
+    }
+    if (!desired && upgradeTrip.active) {
+      desired = { x: SURFACE_MARKERS.shop.x, y: 1, label: "shop" };
+    }
+    if (!desired && mustDeepen) {
+      desired = { x: state.x, y: mission.minDepth, label: "deepen" };
+    }
+    if (!desired && atShop && !needUpgrade) {
+      desired = { x: state.x, y: feasibleDepth, label: "deepen" };
+    } else if (!desired && upgradeTrip.active) {
+      desired = { x: SURFACE_MARKERS.shop.x, y: 1, label: "shop" };
+    } else if (!desired && mineMode) {
+      if (
+        !atSurfaceRow &&
+        orePlan?.path?.length &&
+        !oreBacktrack &&
+        !oreTooShallow &&
+        state.fuel > fuelGuard + 6 &&
+        !cargoFull
+      ) {
+        desired = { x: orePlan.target.x, y: orePlan.target.y, label: "ore", path: orePlan.path };
+      } else {
+        desired = { x: state.x, y: feasibleDepth, label: "deepen" };
+      }
+    } else if (!desired && sweep.active && state.fuel > fuelGuard + 12 && !cargoFull) {
+      desired = { x: sweep.targetX, y: sweep.y, label: "sweep" };
+    } else if (!desired && (knowGoal || discoveredGoal) && !state.goal?.mined) {
+      const goalRef = knowGoal ? state.goal : discoveredGoal;
+      desired = { x: goalRef.x, y: goalRef.y, label: "goal" };
+    } else if (!desired && !knowGoal) {
+      if (!returnPlan.pathKnown) {
+        desired = { x: state.x, y: state.y, label: "explore" };
+      } else {
+        desired = state.fuel > fuelGuard + 12
+          ? { x: state.x, y: feasibleDepth, label: "deepen" }
+          : { x: SURFACE_MARKERS.station.x, y: 1, label: "station" };
+      }
+    } else if (!desired) {
+      desired = { x: SURFACE_MARKERS.station.x, y: 1, label: "station" };
+    }
+
+    const shouldBreakLock =
+      forceReturn ||
+      (targetLock.label === "station" && atStation) ||
+      (targetLock.label === "shop" && atShop && !desiredUpgrade) ||
+      (targetLock.label === "goal" && state.goal?.mined) ||
+      (targetLock.label === "sweep" && !sweep.active) ||
+      (targetLock.label === "deepen" && state.y >= feasibleDepth - 1) ||
+      (targetLock.label === "ore" && (!mineMode || cargoFull));
+
+    if (targetLock.stepsLeft > 0 && !shouldBreakLock) {
+      desired = { ...targetLock.target };
+      targetLock.stepsLeft -= 1;
+    } else {
+      targetLock.label = desired.label;
+      targetLock.target = { ...desired };
+      targetLock.stepsLeft = lockStepsFor(desired.label);
+    }
+
+    if (atSurfaceRow && desired.label !== "station" && desired.label !== "shop") {
+      desired = { x: state.x, y: feasibleDepth, label: "deepen" };
+      targetLock.label = desired.label;
+      targetLock.target = { ...desired };
+      targetLock.stepsLeft = lockStepsFor(desired.label);
+    }
+    if (desired.label !== lastDesiredLabel) {
+      lastDesiredLabel = desired.label;
+      logAgent("INFO", "Target set", {
+        step: steps,
+        target: desired.label,
+        pos: { x: state.x, y: state.y },
+        fuel: state.fuel,
+        hull: state.hull,
+        money: state.money,
+        cargo: state.cargo
+      });
+    }
+    if (sweep.active && desired.label === "sweep") {
+      if (Math.abs(state.x - sweep.targetX) <= 1) {
+        sweep.dir *= -1;
+        sweep.targetX = sweep.dir > 0 ? (W - 3) : 2;
+      }
+    }
+
+    let path = desired.path ? [...desired.path] : bfsPathOnMem(mem, { x: state.x, y: state.y }, desired, { avoidLava });
+    if (desired.label === "station" && returnPlan.path) {
+      path = returnPlan.path;
+    }
+    if (desired.label === "sweep" && (!path || path.length === 0)) {
+      sweep.dir *= -1;
+      sweep.targetX = sweep.dir > 0 ? (W - 3) : 2;
+    }
+    if (path && desired.label === "goal") {
+      const toStationKnown = bfsPathOnMem(
+        mem,
+        { x: desired.x, y: desired.y },
+        { x: SURFACE_MARKERS.station.x, y: 1 },
+        { allowUnknown: false }
+      );
+      if (!toStationKnown) {
+        if (!mission.active) {
+          path = bfsPathOnMem(mem, { x: state.x, y: state.y }, { x: SURFACE_MARKERS.station.x, y: 1 });
+          logAgent("WARN", "Goal path unsafe, returning to station", { step: steps });
+        } else {
+          logAgent("INFO", "No known return corridor; continue mission to map it", { step: steps });
+        }
+      } else {
+        const fuelNeed =
+          estimateFuelForMemPath(path, { x: state.x, y: state.y }, mem) +
+          estimateFuelForMemPath(
+            toStationKnown,
+            { x: desired.x, y: desired.y },
+            mem,
+            { unknownPenalty: 0 }
+          ) +
+          10;
+        if (state.fuel <= fuelNeed && (!mission.active || state.fuel <= fuelGuard)) {
+          path = bfsPathOnMem(mem, { x: state.x, y: state.y }, { x: SURFACE_MARKERS.station.x, y: 1 });
+          logAgent("WARN", "Low fuel for goal, returning to station", { step: steps, fuel: state.fuel, fuelNeed });
+        }
+      }
+    }
+
+      if (!path || path.length === 0) {
+        const frontiers = findFrontier(mem);
+        if (!frontiers.length) {
+          const roam = pickRoamStep(mem, { x: state.x, y: state.y });
+          if (!roam) {
+            log("Finish test failed: no frontier or roam move.", "bad");
+            break;
+          }
+          stepSim({ type: "MOVE", dir: roam, reason: "Test: roam" }, { renderAfter: true });
+          steps += 1;
+          if (mission.active) mission.stepsLeft -= 1;
+          if (steps - lastLogStep >= 25) {
+            lastLogStep = steps;
+            logAgent("INFO", "Roam step", { step: steps, pos: { x: state.x, y: state.y }, fuel: state.fuel, hull: state.hull });
+          }
+          await sleep(8);
+          continue;
+        }
+        const goalBias = mineMode
+          ? (orePlan?.target ?? { x: state.x, y: Math.min(H - 2, state.y + 6) })
+          : ((knowGoal || discoveredGoal) && !state.goal?.mined
+            ? { x: (knowGoal ? state.goal.x : discoveredGoal.x), y: (knowGoal ? state.goal.y : discoveredGoal.y) }
+            : { x: state.x, y: depthTarget });
+        const bestFrontier = frontiers.reduce((best, cur) => {
+          const dist = Math.abs(cur.x - state.x) + Math.abs(cur.y - state.y);
+          const toward = Math.abs(cur.x - goalBias.x) + Math.abs(cur.y - goalBias.y);
+          const score = dist + toward * 0.5;
+          if (!best || score < best.score) return { ...cur, score };
+          return best;
+        }, null);
+        path = bfsPathOnMem(mem, { x: state.x, y: state.y }, bestFrontier);
+        if (!path || path.length === 0) {
+          const exploreDir = pickExploreStep(mem, { x: state.x, y: state.y });
+          if (!exploreDir) {
+            const roam = pickRoamStep(mem, { x: state.x, y: state.y });
+            if (!roam) {
+              log("Finish test failed: stuck with no explore or roam move.", "bad");
+              break;
+            }
+            stepSim({ type: "MOVE", dir: roam, reason: "Test: roam" }, { renderAfter: true });
+            steps += 1;
+            if (mission.active) mission.stepsLeft -= 1;
+            if (steps - lastLogStep >= 25) {
+              lastLogStep = steps;
+              logAgent("INFO", "Roam step", { step: steps, pos: { x: state.x, y: state.y }, fuel: state.fuel, hull: state.hull });
+            }
+            await sleep(8);
+            continue;
+          }
+          stepSim({ type: "MOVE", dir: exploreDir, reason: "Test: probe unknown" }, { renderAfter: true });
+          steps += 1;
+          if (mission.active) mission.stepsLeft -= 1;
+          if (steps - lastLogStep >= 25) {
+            lastLogStep = steps;
+            logAgent("INFO", "Explore step", { step: steps, pos: { x: state.x, y: state.y }, fuel: state.fuel, hull: state.hull });
+          }
+          await sleep(8);
+          continue;
+      }
+    }
+
+    if (stepsSinceDiscovery > 40) {
+      const scan = agentState.localScan;
+      const center = Math.floor(scan.length / 2);
+      const cand = [
+        { dir: "D", dx: 0, dy: 1 },
+        { dir: "L", dx: -1, dy: 0 },
+        { dir: "R", dx: 1, dy: 0 },
+        { dir: "U", dx: 0, dy: -1 }
+      ];
+      let forced = null;
+      for (const c of cand) {
+        const t = scan[center + c.dy]?.[center + c.dx];
+        if (t && t !== TILE.ROCK && t !== TILE.SURFACE) {
+          forced = c.dir;
+          break;
+        }
+      }
+      if (forced) {
+        stepSim({ type: "MOVE", dir: forced, reason: "Test: force new tiles" }, { renderAfter: true });
+        steps += 1;
+        stepsSinceDiscovery = 0;
+        if (mission.active) mission.stepsLeft -= 1;
+        if (steps - lastLogStep >= 25) {
+          lastLogStep = steps;
+          logAgent("INFO", "Forced step", { step: steps, dir: forced, pos: { x: state.x, y: state.y }, fuel: state.fuel, hull: state.hull });
+        }
+        await sleep(8);
+        continue;
+      }
+    }
+
+    const dir = path.shift();
+    stepSim({ type: "MOVE", dir, reason: `Test: towards ${desired.label}` }, { renderAfter: true });
+    steps += 1;
+    if (mission.active) mission.stepsLeft -= 1;
+    if (steps - lastLogStep >= 25) {
+      lastLogStep = steps;
+      logAgent("INFO", "Step", { step: steps, target: desired.label, pos: { x: state.x, y: state.y }, fuel: state.fuel, hull: state.hull });
+    }
+    if (el.progressBar) el.progressBar.value = Math.max(0, Math.min(100, Math.round((steps / maxSteps) * 100)));
+    if (el.progressLabel) el.progressLabel.textContent = `${el.progressBar?.value ?? 0}%`;
+    await sleep(8);
+  }
+
+  if (state.alive && state.goal?.mined) {
+    const msg = finishReason === "goal_mined"
+      ? `Finish test passed: goal mined in ${finishTurns} turns.`
+      : `Finish test passed: goal mined and returned to surface in ${finishTurns} turns.`;
+    log(msg, "ok");
+    logAgent("INFO", "Finish test passed", { turns: finishTurns, money: state.money, reason: finishReason });
+  } else if (!state.alive) {
+    log("Finish test failed: game over during solver.", "bad");
+    logAgent("ERROR", "Finish test failed: game over", { turn: state.turn, fuel: state.fuel, hull: state.hull, pos: { x: state.x, y: state.y } });
+  } else {
+    log("Finish test failed: did not reach win condition.", "bad");
+    logAgent("WARN", "Finish test failed: no win condition", { turn: state.turn, pos: { x: state.x, y: state.y }, fuel: state.fuel, hull: state.hull });
+  }
+
+  testMode.active = false;
+  testMode.running = false;
+  if (el.btnStartTestProgrammatic) el.btnStartTestProgrammatic.disabled = false;
+  setAgentStatus("idle");
+}
+
+function makeWorld() {
+  // Row 0 is surface (green). Rows 1..H-1 are underground.
+  const world = Array.from({length: H}, (_, y) =>
+    Array.from({length: W}, (_, x) => {
+      if (y === 0) return TILE.SURFACE;
+      // Air pockets near surface occasionally
+      if (y < 3 && Math.random() < 0.08) return TILE.AIR;
+      // density changes with depth
+      const depth = y;
+      const rockChance = clamp(0.06 + depth * 0.01, 0.06, 0.35);
+      const oreChance  = clamp(0.07 + depth * 0.008, 0.07, 0.28);
+      const lavaChance = clamp((depth - 10) * 0.01, 0, 0.18);
+
+      const r = Math.random();
+      if (r < lavaChance) return TILE.LAVA;
+      if (r < lavaChance + oreChance) return TILE.ORE;
+      if (r < lavaChance + oreChance + rockChance) return TILE.ROCK;
+      return TILE.DIRT;
+    })
+  );
+
+  // Ensure a small air zone at surface for returning.
+  for (let x=0; x<W; x++) world[1][x] = TILE.AIR;
+
+  return world;
+}
+
+function reset() {
+  state = {
+    turn: 0,
+    money: 0,
+    fuel: 120,
+    maxFuel: 120,
+    hull: 40,
+    maxHull: 40,
+    drill: 1.0, // lower = more efficient
+    cargo: 0,
+    cargoCap: 12,
+    x: Math.floor(W/2),
+    y: 1, // just below surface air row
+    alive: true,
+    lastAction: null,
+    lastReason: null,
+    seen: Array.from({ length: H }, () => Array(W).fill(false)),
+  };
+  state.world = makeWorld();
+  placeGoalOre();
+  el.log.innerHTML = "";
+  fuelNavigatorPath = null;
+  fuelNavigatorActive = false;
+  apiErrorStreak = 0;
+  hideWinBanner();
+  hideApiErrorBanner();
+  log("Reset. Pod starts near surface. Goal: mine the magenta Goal Ore deep below.", "ok");
+  setApiStatus("API: idle", "");
+  setAgentStatus("idle");
+  render();
+  updateIO({note:"Ready"});
+}
+
+function placeGoalOre() {
+  const gy = H - 2;
+  const gx = clamp(rand(W), 2, W - 3);
+  state.world[gy][gx] = TILE.GOAL;
+  // Ensure a guaranteed diggable corridor to the goal (no rock blocks).
+  for (let y = 2; y <= gy; y++) {
+    if (state.world[y][gx] !== TILE.GOAL) state.world[y][gx] = TILE.DIRT;
+  }
+  state.goal = { x: gx, y: gy, mined: false };
+}
+
+function render() {
+  // Stats
+  el.depth.textContent = `${state.y} tiles`;
+  el.money.textContent = `$${state.money}`;
+  el.fuel.textContent = `${state.fuel}/${state.maxFuel}`;
+  el.hull.textContent = `${state.hull}/${state.maxHull}`;
+  el.cargo.textContent = `${state.cargo}/${state.cargoCap}`;
+  el.turn.textContent = `${state.turn}`;
+
+  // Grid
+  el.grid.style.gridTemplateColumns = `repeat(${W}, 16px)`;
+  el.grid.innerHTML = "";
+
+  updateFuelNavigatorState();
+
+  const fovMinX = state.x - 2;
+  const fovMinY = state.y - 2;
+  const fovMaxX = fovMinX + FOV_SIZE - 1;
+  const fovMaxY = fovMinY + FOV_SIZE - 1;
+  const goalX = state.goal ? state.goal.x : -999;
+  const goalY = state.goal ? state.goal.y : -999;
+  const fuelPathCells = new Set();
+  if (fuelNavigatorEnabled && fuelNavigatorActive && Array.isArray(fuelNavigatorPath)) {
+    let px = state.x;
+    let py = state.y;
+    for (const dir of fuelNavigatorPath) {
+      if (dir === "L") px--;
+      if (dir === "R") px++;
+      if (dir === "D") py++;
+      if (dir === "U") py--;
+      if (!inBounds(px, py)) break;
+      fuelPathCells.add(`${px},${py}`);
+    }
+  }
+
+  for (let y = fovMinY; y <= fovMaxY; y++) {
+    for (let x = fovMinX; x <= fovMaxX; x++) {
+      if (inBounds(x, y)) state.seen[y][x] = true;
+    }
+  }
+
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      let t = state.world[y][x];
+      cell.style.backgroundColor = COLORS[t] ?? "#000";
+      if (t === TILE.AIR) cell.classList.add("t-air");
+      if (t === TILE.SURFACE) cell.classList.add("t-surface");
+      if (t === TILE.DIRT) cell.classList.add("t-dirt");
+      if (t === TILE.ROCK) cell.classList.add("t-rock");
+      if (t === TILE.ORE) cell.classList.add("t-ore");
+      if (t === TILE.LAVA) cell.classList.add("t-lava");
+      if (t === TILE.GOAL) cell.classList.add("t-goal");
+
+      if (x >= fovMinX && x <= fovMaxX && y >= fovMinY && y <= fovMaxY) {
+        cell.classList.add("fov");
+      }
+      const inGoalReveal = x === goalX && y === goalY;
+      if (!state.seen[y][x] && !inGoalReveal) {
+        cell.classList.add("fog");
+      }
+
+      if (y === 0 && x === SURFACE_MARKERS.station.x) {
+        cell.style.backgroundColor = SURFACE_MARKERS.station.color;
+        cell.classList.add("t-station");
+        cell.title = SURFACE_MARKERS.station.label;
+        const label = document.createElement("span");
+        label.className = "cell-label";
+        label.textContent = "Fuel Station";
+        const icon = document.createElement("span");
+        icon.className = "cell-icon";
+        icon.textContent = "⛽";
+        cell.appendChild(label);
+        cell.appendChild(icon);
+      }
+      if (y === 0 && x === SURFACE_MARKERS.shop.x) {
+        cell.style.backgroundColor = SURFACE_MARKERS.shop.color;
+        cell.classList.add("t-shop");
+        cell.title = SURFACE_MARKERS.shop.label;
+        const label = document.createElement("span");
+        label.className = "cell-label";
+        label.textContent = "Shop";
+        const icon = document.createElement("span");
+        icon.className = "cell-icon";
+        icon.textContent = "$";
+        cell.appendChild(label);
+        cell.appendChild(icon);
+      }
+
+      if (x === state.x && y === state.y) {
+        cell.style.backgroundColor = "#09f";
+        cell.classList.add("t-pod");
+      }
+
+      if (fuelPathCells.has(`${x},${y}`)) {
+        cell.style.boxShadow = "inset 0 0 0 2px rgba(255,215,64,0.85), inset 0 0 12px rgba(255,215,64,0.25)";
+      }
+
+      el.grid.appendChild(cell);
+    }
+  }
+
+  // Buttons
+  if (el.btnStartAgent) el.btnStartAgent.disabled = !state.alive;
+  if (el.fuelNavigatorToggle) {
+    const lockNavigator = state.turn > 0 || auto.on;
+    el.fuelNavigatorToggle.disabled = lockNavigator;
+    el.fuelNavigatorToggle.title = lockNavigator
+      ? "Fuel navigator can only be changed before the game starts."
+      : "";
+  }
+}
+
+function inBounds(x,y){ return x>=0 && x<W && y>=0 && y<H; }
+function getTileFrom(s,x,y){ return inBounds(x,y) ? s.world[y][x] : TILE.ROCK; }
+function setTileOn(s,x,y,t){ if(inBounds(x,y)) s.world[y][x] = t; }
+
+function isDiggable(t) {
+  return t === TILE.DIRT || t === TILE.ORE || t === TILE.LAVA || t === TILE.GOAL;
+}
+function isSolid(t) {
+  return t === TILE.DIRT || t === TILE.ROCK || t === TILE.ORE || t === TILE.LAVA || t === TILE.SURFACE;
+}
+
+function atSurface(s) {
+  return s.y === 1; // air row just under surface row
+}
+
+function atFuelStation(s) {
+  return atSurface(s) && s.x === SURFACE_MARKERS.station.x;
+}
+
+function atUpgradeShop(s) {
+  return atSurface(s) && s.x === SURFACE_MARKERS.shop.x;
+}
+
+function doSurfaceOps(s) {
+  // Sell all cargo, refuel & repair for money.
+  const sold = s.cargo;
+  const revenue = sold * ORE_VALUE;
+  s.money += revenue;
+  s.cargo = 0;
+
+  // Refill fuel (free in this prototype)
+  s.fuel = s.maxFuel;
+
+  // Repair hull costs money, clamp by money.
+  const missing = s.maxHull - s.hull;
+  const repairCostPer = 3;
+  const affordable = Math.floor(s.money / repairCostPer);
+  const repaired = Math.min(missing, affordable);
+  s.hull += repaired;
+  s.money -= repaired * repairCostPer;
+
+  if (fuelNavigatorActive) {
+    fuelNavigatorActive = false;
+    fuelNavigatorPath = null;
+  }
+
+  log(`Fuel station: sold ${sold} ore for $${revenue}, refueled, repaired ${repaired} hull (-$${repaired*repairCostPer}).`, "ok");
+}
+
+function applyHazard(s, tile) {
+  if (tile === TILE.LAVA) {
+    s.hull -= 8;
+    log("Entered lava: -8 hull.", "warn");
+  }
+}
+
+function checkGoal(s, tile) {
+  if (tile === TILE.GOAL && s.goal && !s.goal.mined) {
+    s.goal.mined = true;
+    winGame(s, "Goal Ore mined.");
+  }
+}
+
+function gameOver(s, reason) {
+  s.alive = false;
+  log(`GAME OVER: ${reason}`, "bad");
+  logServer("ERROR", `GAME OVER: ${reason}`);
+  stopAuto();
+  render();
+}
+
+function winGame(s, reason) {
+  s.alive = false;
+  const modelLabel = lastAgentModel || (testMode.active ? "programmatic" : "unknown");
+  const message = `Won in ${s.turn} turns with ${modelLabel}. ${reason}`;
+  log(message, "ok");
+  logServer("INFO", "GAME WON", { turns: s.turn, model: modelLabel, reason });
+  showWinBanner(message);
+  stopAuto();
+  render();
+}
+
+function stepSim(action, opts = {}) {
+  const s = opts.stateRef ?? state;
+  const logFn = opts.logFn ?? log;
+  const renderAfter = opts.renderAfter ?? (s === state);
+
+  if (!s.alive) return;
+
+  s.turn += 1;
+  s.lastAction = action?.type ?? null;
+  s.lastReason = action?.reason ?? null;
+
+  // Fuel burn: base + movement + digging
+  const baseDrain = 1;
+  s.fuel -= baseDrain;
+
+  // Surface ops if asked and actually at surface
+  if (action.type === "SURFACE_OPS") {
+    if (atFuelStation(s)) {
+      doSurfaceOps(s);
+    } else {
+      logFn("Tried SURFACE_OPS but not at fuel station.", "warn");
+    }
+  }
+
+  // Movement / digging primitives
+  if (action.type === "MOVE") {
+    const dir = action.dir; // "L","R","D","U"
+    let nx = s.x, ny = s.y;
+    if (dir === "L") nx--;
+    if (dir === "R") nx++;
+    if (dir === "D") ny++;
+    if (dir === "U") ny--;
+
+    // Up can dig or thrust
+    const target = getTileFrom(s, nx, ny);
+
+    if (!inBounds(nx, ny)) {
+      logFn("Bumped world boundary.", "warn");
+    } else if (dir === "U") {
+      const thrustCost = 2;
+      if (target === TILE.AIR) {
+        if (s.fuel < thrustCost) {
+          logFn("Not enough fuel to thrust up.", "warn");
+        } else {
+          s.fuel -= thrustCost;
+          s.x = nx; s.y = ny;
+          logFn("Thrust up into air (-fuel).", "ok");
+        }
+      } else if (target === TILE.ROCK || target === TILE.SURFACE) {
+        logFn("Blocked by rock/surface.", "warn");
+      } else if (isDiggable(target)) {
+        // Dig upward
+        const baseDig = (target === TILE.DIRT) ? 2 : (target === TILE.ORE ? 2 : 3);
+        const digCost = Math.max(1, Math.ceil(baseDig * s.drill));
+        s.fuel -= (digCost + 1);
+
+        if (target === TILE.ORE) {
+          if (s.cargo < s.cargoCap) {
+            s.cargo += 1;
+            const dust = Math.floor(ORE_VALUE * 0.25);
+            s.money += dust;
+            logFn(`Dug ore: +1 cargo, +$${dust} gold dust.`, "ok");
+          } else {
+            logFn("Dug ore but cargo full (ore lost).", "warn");
+          }
+        }
+
+        applyHazard(s, target);
+        checkGoal(s, target);
+        setTileOn(s, nx, ny, TILE.AIR);
+        s.x = nx; s.y = ny;
+        logFn("Dug up into tile.", "ok");
+      }
+    } else {
+      // L/R/D: can dig if diggable, or move if air/surface-air row
+      if (target === TILE.ROCK || target === TILE.SURFACE) {
+        logFn("Blocked by rock/surface.", "warn");
+      } else if (target === TILE.AIR) {
+        s.fuel -= 0.5;
+        s.x = nx; s.y = ny;
+        logFn(`Moved ${dir}.`, "ok");
+      } else if (isDiggable(target)) {
+        // Digging cost
+        const baseDig = (target === TILE.DIRT) ? 2 : (target === TILE.ORE ? 2 : 3);
+        const digCost = Math.max(1, Math.ceil(baseDig * s.drill));
+        s.fuel -= (digCost + 1);
+
+        // Collect ore if possible
+        if (target === TILE.ORE) {
+          if (s.cargo < s.cargoCap) {
+            s.cargo += 1;
+            const dust = Math.floor(ORE_VALUE * 0.25);
+            s.money += dust;
+            logFn(`Dug ore: +1 cargo, +$${dust} gold dust.`, "ok");
+          } else {
+            logFn("Dug ore but cargo full (ore lost).", "warn");
+          }
+        }
+
+        // Hazard
+        applyHazard(s, target);
+        checkGoal(s, target);
+
+        // Remove tile -> air, move into it
+        setTileOn(s, nx, ny, TILE.AIR);
+        s.x = nx; s.y = ny;
+        logFn(`Dug & moved ${dir}.`, "ok");
+      }
+    }
+  }
+
+  // Simple upgrade action
+  if (action.type === "UPGRADE" && atUpgradeShop(s)) {
+    // Spend money to increase capacity
+    const kind = action.kind;
+    if (kind === "FUEL") {
+      const cost = 120;
+      if (s.money >= cost) { s.money -= cost; s.maxFuel += 25; s.fuel = s.maxFuel; logFn("Upgrade: +25 maxFuel.", "ok"); }
+      else logFn("Not enough money for fuel upgrade.", "warn");
+    } else if (kind === "CARGO") {
+      const cost = 150;
+      if (s.money >= cost) { s.money -= cost; s.cargoCap += 4; logFn("Upgrade: +4 cargoCap.", "ok"); }
+      else logFn("Not enough money for cargo upgrade.", "warn");
+    } else if (kind === "HULL") {
+      const cost = 140;
+      if (s.money >= cost) { s.money -= cost; s.maxHull += 10; s.hull = s.maxHull; logFn("Upgrade: +10 maxHull.", "ok"); }
+      else logFn("Not enough money for hull upgrade.", "warn");
+    } else if (kind === "DRILL") {
+      const cost = 180;
+      if (s.money >= cost) { s.money -= cost; s.drill = Math.max(0.6, s.drill - 0.1); logFn("Upgrade: faster drill (lower fuel per dig).", "ok"); }
+      else logFn("Not enough money for drill upgrade.", "warn");
+    }
+  } else if (action.type === "UPGRADE" && !atUpgradeShop(s)) {
+    logFn("Tried UPGRADE but not at upgrade shop.", "warn");
+  }
+
+  // Clamp
+  s.fuel = Math.max(0, s.fuel);
+  s.hull = Math.max(0, s.hull);
+
+  // Random tunnel collapse (forces faster return)
+  if (!testMode.active && s.y > 6 && Math.random() < 0.08) {
+    const bx = s.x;
+    const by = s.y + 1;
+    if (inBounds(bx, by) && getTileFrom(s, bx, by) === TILE.AIR) {
+      setTileOn(s, bx, by, TILE.ROCK);
+      logFn("Tunnel collapse! Rock sealed behind you.", "warn");
+    }
+  }
+
+  // Fail states
+  if (s.fuel <= 0) return gameOver(s, "Out of fuel.");
+  if (s.hull <= 0) return gameOver(s, "Hull destroyed.");
+
+  if (renderAfter) render();
+}
+
+// ---------------- Agent I/O ----------------
+
+function buildStateForAgentFrom(s) {
+  // Give the agent a small local scan (like “vision”).
+  const scan = [];
+  const half = Math.floor(FOV_SIZE / 2); // 6 -> 3
+  const minX = s.x - (half - 1); // 6x6: x-2 .. x+3
+  const minY = s.y - (half - 1);
+  const maxX = minX + FOV_SIZE - 1;
+  const maxY = minY + FOV_SIZE - 1;
+  const vision = [];
+
+  for (let y = minY; y <= maxY; y++) {
+    const row = [];
+    for (let x = minX; x <= maxX; x++) {
+      const tile = getTileFrom(s, x, y);
+      row.push(tile);
+      vision.push({ x, y, tile });
+    }
+    scan.push(row.join(""));
+  }
+  logAgent("DEBUG", "Vision scan", {
+    pos: { x: s.x, y: s.y },
+    bounds: { minX, minY, maxX, maxY },
+    tiles: vision
+  });
+
+  return {
+    turn: s.turn,
+    pos: { x: s.x, y: s.y, depth: s.y },
+    fuel: { cur: s.fuel, max: s.maxFuel },
+    hull: { cur: s.hull, max: s.maxHull },
+    cargo: { cur: s.cargo, cap: s.cargoCap },
+    money: s.money,
+    atSurface: atSurface(s),
+    atFuelStation: atFuelStation(s),
+    atUpgradeShop: atUpgradeShop(s),
+    stations: {
+      fuel: { x: SURFACE_MARKERS.station.x, y: 0 },
+      shop: { x: SURFACE_MARKERS.shop.x, y: 0 }
+    },
+    goal: s.goal,
+    drill: s.drill,
+    localScan: scan, // array of strings
+    rules: {
+      noDigUp: false,
+      upRequiresAir: false,
+      lavaDamage: 8,
+      baseTurnFuel: 1,
+      upThrustFuel: 2,
+      digFuelBase: { dirt: 2, ore: 2, lava: 3 },
+      upgradeCosts: { FUEL: 120, CARGO: 150, HULL: 140, DRILL: 180 }
+    }
+  };
+}
+
+function buildStateForAgent() {
+  return buildStateForAgentFrom(state);
+}
+
+function updateIO(extra = {}) {
+  return extra;
+}
+
+function setApiStatus(text, cls = "") {
+  if (el.apiStatusText) el.apiStatusText.textContent = text;
+  if (el.apiStatusDot) {
+    el.apiStatusDot.className = `status-dot${cls ? " " + cls : ""}`;
+  }
+  return { text, cls };
+}
+
+function setAgentStatus(kind = "idle", model = null) {
+  if (el.agentStatus) {
+    if (kind === "llm") el.agentStatus.textContent = "Agent: LLM";
+    else if (kind === "programmatic") el.agentStatus.textContent = "Agent: Programmatic (code)";
+    else el.agentStatus.textContent = "Agent: idle";
+  }
+  if (el.agentModel) {
+    if (model && kind === "llm") {
+      el.agentModel.textContent = model;
+      el.agentModel.style.display = "inline-flex";
+    } else {
+      el.agentModel.textContent = "";
+      el.agentModel.style.display = "none";
+    }
+  }
+}
+
+async function fetchAgentModel() {
+  try {
+    const res = await fetch("/llm-model");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data?.model) {
+      lastAgentModel = data.model;
+      setAgentStatus("llm", lastAgentModel);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Simulated API call. Mimics latency+jitter and optional “streaming tokens”.
+ */
+function callAgentSimulated(agentState, planCount) {
+  const base = 900;
+  const jit = 300;
+  const delay = Math.max(0, base + (Math.random()*2 - 1) * jit);
+
+  const streaming = false;
+
+  return new Promise((resolve) => {
+    let streamTimer = null;
+    if (streaming) {
+      const chunks = [
+        "Analyzing fuel/cargo… ",
+        "Scanning for ore… ",
+        "Considering surface return… ",
+        "Selecting action… "
+      ];
+      let i = 0;
+      streamTimer = setInterval(() => {
+        if (i < chunks.length) {
+          log(chunks[i], "thinking");
+          i++;
+        }
+      }, 180);
+    }
+
+    setTimeout(() => {
+      if (streamTimer) clearInterval(streamTimer);
+      const plan = buildPlan(agentState, planCount);
+      resolve(plan);
+    }, delay);
+  });
+}
+
+async function callAgentRemote(agentState, planCount) {
+  const url = REMOTE_API_ENDPOINT;
+  const timeout = REMOTE_API_TIMEOUT_MS;
+  const fuelNavigator = buildFuelNavigatorPayload(agentState, planCount);
+
+  const payload = {
+    sessionId,
+    planLength: planCount,
+    state: agentState,
+    fuelNavigator
+  };
+
+  const controller = new AbortController();
+  let abortedByTimeout = false;
+  const t = setTimeout(() => { abortedByTimeout = true; controller.abort(); }, timeout);
+
+  try {
+    setApiStatus("API: requesting…", "thinking");
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    clearTimeout(t);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data || !Array.isArray(data.actions)) throw new Error("Bad response: missing actions[]");
+    if (data.reasoning) log(data.reasoning, "thinking");
+    if (data.model) {
+      lastAgentModel = data.model;
+      setAgentStatus("llm", lastAgentModel);
+    }
+    if (typeof data.progress === "number") {
+      if (el.progressBar) el.progressBar.value = Math.max(0, Math.min(100, data.progress));
+      if (el.progressLabel) el.progressLabel.textContent = `${Math.round(el.progressBar?.value ?? 0)}%`;
+    }
+    setApiStatus(`API: ok (${data.actions.length} actions)`, "ok");
+    return {
+      actions: data.actions,
+      status: data.status,
+      note: data.note,
+      reasoning: data.reasoning
+    };
+  } catch (err) {
+    clearTimeout(t);
+    if (err?.name === "AbortError") {
+      err.message = abortedByTimeout
+        ? `no response from API (timeout after ${timeout}ms)`
+        : "request aborted";
+      err.abortedByTimeout = abortedByTimeout;
+    }
+    logServer("ERROR", "API request failed", {
+      name: err?.name || null,
+      message: String(err?.message || err),
+      timeoutMs: timeout,
+      abortedByTimeout: err?.abortedByTimeout ?? null
+    });
+    setApiStatus(`API: error (${err.message})`, "bad");
+    throw err;
+  }
+}
+
+function cloneState(s) {
+  return {
+    ...s,
+    world: s.world.map(row => row.slice())
+  };
+}
+
+function buildPlan(agentState, count) {
+  const sim = cloneState(state);
+  const actions = [];
+  const total = Math.max(1, count || 1);
+
+  for (let i = 0; i < total; i++) {
+    const simAgent = buildStateForAgentFrom(sim);
+    const a = chooseActionHeuristic(simAgent);
+    actions.push(a);
+    stepSim(a, { stateRef: sim, logFn: () => {}, renderAfter: false });
+    if (!sim.alive) break;
+  }
+
+  return actions;
+}
+
+function chooseActionHeuristic(s) {
+  // Quick helpers
+  const fuelPct = s.fuel.cur / s.fuel.max;
+  const hullPct = s.hull.cur / s.hull.max;
+  const cargoPct = s.cargo.cur / s.cargo.cap;
+  const scan = s.localScan;
+  const center = Math.floor(scan.length / 2);
+  // log(`Vision 6x6 @ (${s.pos.x},${s.pos.y}):\n${scan.join("\n")}`, "thinking");
+  const getLocalTile = (dx, dy) => {
+    const ry = center + dy;
+    const rx = center + dx;
+    if (ry < 0 || ry >= scan.length) return null;
+    const row = scan[ry];
+    if (rx < 0 || rx >= row.length) return null;
+    return row[rx];
+  };
+  const isBlockedLocal = (t) => t === TILE.ROCK || t === TILE.SURFACE;
+  const isHazardLocal = (t) => t === TILE.LAVA;
+  const pickMove = (dirs) => {
+    // Prefer non-blocked, non-lava tiles if visible in local scan.
+    let fallback = null;
+    for (const dir of dirs) {
+      const dx = dir === "L" ? -1 : dir === "R" ? 1 : 0;
+      const dy = dir === "U" ? -1 : dir === "D" ? 1 : 0;
+      const t = getLocalTile(dx, dy);
+      if (t == null) {
+        if (!fallback) fallback = dir;
+        continue;
+      }
+      if (isBlockedLocal(t)) continue;
+      if (isHazardLocal(t)) {
+        if (!fallback) fallback = dir;
+        continue;
+      }
+      return dir;
+    }
+    return fallback ?? dirs[0];
+  };
+
+  if (s.atFuelStation) {
+    if (s.cargo.cur > 0 || fuelPct < 0.8 || hullPct < 0.9) {
+      return { type: "SURFACE_OPS", reason: "At fuel station: sell/refuel/repair." };
+    }
+  }
+  if (s.atUpgradeShop) {
+    // sometimes upgrade if money
+    if (s.money >= 150 && Math.random() < 0.45) {
+      const kind = (s.money >= 180 && Math.random()<0.4) ? "DRILL" : (s.money >= 150 && Math.random()<0.4) ? "CARGO" : (Math.random()<0.5 ? "FUEL" : "HULL");
+      return { type: "UPGRADE", kind, reason: `At upgrade shop: upgrading ${kind}.` };
+    }
+  }
+
+  if (fuelPct < 0.25 || hullPct < 0.35 || cargoPct > 0.9) {
+    // Head up if possible (thrust up into air). If blocked, move sideways to find air.
+    const dir = pickMove(["U", "L", "R", "D"]);
+    return { type: "MOVE", dir, reason: "Conserving: low fuel/hull or cargo nearly full. Returning upward." };
+  }
+
+  // Look for ore in local scan: if ore exists, move toward it.
+  // localScan strings are rows of tiles centered around player.
+  let best = null;
+
+  for (let ry=0; ry<scan.length; ry++) {
+    for (let rx=0; rx<scan[ry].length; rx++) {
+      if (scan[ry][rx] === TILE.ORE) {
+        const dx = rx - center;
+        const dy = ry - center;
+        const dist = Math.abs(dx) + Math.abs(dy);
+        if (!best || dist < best.dist) best = { dx, dy, dist };
+      }
+    }
+  }
+
+  if (best) {
+    // Prefer horizontal then down; avoid up because can't dig up.
+    if (best.dx < 0) return { type: "MOVE", dir: pickMove(["L", "D", "R", "U"]), reason: "Ore detected nearby: moving left." };
+    if (best.dx > 0) return { type: "MOVE", dir: pickMove(["R", "D", "L", "U"]), reason: "Ore detected nearby: moving right." };
+    if (best.dy > 0) return { type: "MOVE", dir: pickMove(["D", "L", "R", "U"]), reason: "Ore below: digging down." };
+    // if ore above, go sideways/down to route around
+    return { type: "MOVE", dir: pickMove([Math.random()<0.5?"L":"R", "D", "U"]), reason: "Ore above but can't dig up: repositioning." };
+  }
+
+  // Default: keep going down for progression
+  return { type: "MOVE", dir: pickMove(["D", "L", "R", "U"]), reason: "No local ore: exploring deeper." };
+}
+
+let agentBusy = false;
+const planQueue = [];
+let apiErrorStreak = 0;
+
+function renderDebug() {
+  return;
+}
+
+function enqueuePlan(actions) {
+  for (const a of actions) planQueue.push(a);
+}
+
+function nextPlannedAction() {
+  return planQueue.length ? planQueue.shift() : null;
+}
+
+async function requestPlan() {
+  if (agentBusy || !state.alive) return;
+  agentBusy = true;
+  renderDebug();
+  const agentState = buildStateForAgent();
+  updateIO({ status: "waiting_for_agent" });
+
+  log("Calling agent…", "thinking");
+  const planLen = DEFAULT_PLAN_LENGTH;
+  try {
+    const result = await callAgentRemote(agentState, planLen);
+    const actions = result.actions || [];
+    const isApiError = result.status === "api_error" || result.note === "api-error";
+    if (actions.length === 0) {
+      if (isApiError) {
+        apiErrorStreak += 1;
+        const detail = result.reasoning ? ` ${result.reasoning}` : "";
+        const bannerMsg = `API error (${apiErrorStreak}/${MAX_API_ERROR_STREAK}).${detail}`;
+        log(bannerMsg, "warn");
+        showApiErrorBanner(bannerMsg);
+        if (apiErrorStreak >= MAX_API_ERROR_STREAK) {
+          log("Auto-run stopped after repeated API errors.", "bad");
+          showApiErrorBanner("Auto-run stopped after repeated API errors. Check your API key/limit.");
+          stopAuto();
+        }
+      } else {
+        log("Agent returned no actions. Auto-run paused.", "warn");
+        stopAuto();
+      }
+    } else {
+      apiErrorStreak = 0;
+      hideApiErrorBanner();
+      enqueuePlan(actions);
+    }
+  } catch (err) {
+    const msg = `Agent call failed: ${err.message || err}. Will retry.`;
+    log(msg, "bad");
+    showApiErrorBanner(msg);
+  }
+  agentBusy = false;
+  renderDebug();
+}
+
+function playPlannedAction() {
+  if (!state.alive) return;
+  const action = nextPlannedAction();
+  if (!action) return;
+
+  log(`Agent action: ${action.type}${action.dir ? " " + action.dir : ""}${action.kind ? " " + action.kind : ""} — ${action.reason}`, "ok");
+  updateIO({ response: action, queued: planQueue.length });
+
+  stepSim(action);
+  renderDebug();
+}
+
+async function stepAgent() {
+  if (!state.alive) return;
+  if (el.btnStartAgent) el.btnStartAgent.disabled = true;
+
+  if (planQueue.length === 0) {
+    await requestPlan();
+  }
+  playPlannedAction();
+
+  if (el.btnStartAgent) el.btnStartAgent.disabled = !state.alive;
+}
+
+function stopAuto() {
+  auto.on = false;
+  if (auto.timer) clearTimeout(auto.timer);
+  auto.timer = null;
+  renderDebug();
+}
+
+async function tickAuto() {
+  if (!auto.on || !state.alive) return;
+  if (planQueue.length === 0 && !agentBusy) {
+    await requestPlan();
+  }
+  playPlannedAction();
+  if (!auto.on || !state.alive) return;
+
+  const d = planQueue.length > 0 ? DEFAULT_PLAYBACK_DELAY_MS : DEFAULT_AUTO_DELAY_MS;
+  auto.timer = setTimeout(tickAuto, d);
+}
+
+// UI wiring
+el.btnStartAgent.onclick = () => {
+  if (!state.alive) return;
+  auto.on = !auto.on;
+  if (auto.on) {
+    setAgentStatus("llm", lastAgentModel);
+    if (!lastAgentModel) fetchAgentModel();
+    tickAuto();
+  } else {
+    stopAuto();
+    setAgentStatus("idle");
+  }
+  renderDebug();
+};
+
+el.btnReset.onclick = () => reset();
+el.btnStartTestProgrammatic.onclick = () => runFinishTest({ knowGoal: false });
+if (el.fuelNavigatorToggle) {
+  el.fuelNavigatorToggle.checked = fuelNavigatorEnabled;
+  el.fuelNavigatorToggle.onchange = () => {
+    fuelNavigatorEnabled = Boolean(el.fuelNavigatorToggle?.checked);
+    localStorage.setItem(FUEL_NAV_TOGGLE_KEY, fuelNavigatorEnabled ? "1" : "0");
+  };
+}
+
+// Start
+reset();
+renderDebug();
+</script>
+</body>
+</html>
