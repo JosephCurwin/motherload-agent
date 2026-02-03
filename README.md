@@ -2,6 +2,9 @@
 
 LLM-controlled mining sim.
 
+test it here
+`https://motherload-agent.netlify.app/`
+
 ![game](images/game.png)
 
 
